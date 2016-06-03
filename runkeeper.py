@@ -1,21 +1,19 @@
 #!/usr/bin/env python
 
-import keyring
-import logging
 import re
 import json
 from requests import Session
 from bs4 import BeautifulSoup as bfs
 from datetime import datetime
-from runkeeperExceptions import InvalidAuhentication, NoActivityInMonth, EndpointConnectionError, ProfileNotFound, InvalidActivityId, NoActivitiesFound
-
-email = ""
-password = keyring.get_password("runkeeper", email)
-
-logger = logging.basicConfig(level=logging.DEBUG)
-
+from runkeeperExceptions import InvalidAuhentication, \
+                                NoActivityInMonth, \
+                                EndpointConnectionError, \
+                                ProfileNotFound, \
+                                InvalidActivityId, \
+                                NoActivitiesFound
 
 class Runkeeper(object):
+
     def __init__(self, email, password):
         self.email = email
         self.password = password
@@ -30,8 +28,11 @@ class Runkeeper(object):
         :return: bool
         """
         url = "{site}/login".format(site=self.site)
+        hidden_elements = self.__get_hidden_elements()
+        hidden_elements['email'] = self.email
+        hidden_elements['password'] = self.password
         try:
-            valid_authentication = self.session.post(url, data=self.__get_hidden_elements())
+            valid_authentication = self.session.post(url, data=hidden_elements)
         except:
             raise EndpointConnectionError
 
@@ -42,21 +43,15 @@ class Runkeeper(object):
 
     def __get_hidden_elements(self):
         """
-        Retrieve all POST parameters
+        Retrieve all <hidden> parameters in form
         :return: dict
         """
-        data = {'password': self.password, 'email': self.email}
         url = "{site}/login".format(site=self.site)
-        try:
-            hidden_session = self.session.post(url, data=data)
-        except:
-            raise EndpointConnectionError
+        login_form = self.session.get(url)
 
-        soup = bfs(hidden_session.text, "html.parser")
+        soup = bfs(login_form.text, "html.parser")
         form = soup.find_all('input', {'type': 'hidden'})
         hidden_elements = {element.attrs['name']: element.attrs['value'] for element in form}
-        hidden_elements['email'] = self.email
-        hidden_elements['password'] = self.password
 
         return hidden_elements
 
@@ -66,19 +61,20 @@ class Runkeeper(object):
         Get profile username or ID once logged in by using Session object
         :return: str
         """
-        url = "{site}/home".format(site=self.site)
-        try:
-            home = self.session.get(url)
-        except:
-            raise EndpointConnectionError
-
-        soup = bfs(home.text, "html.parser")
-        profile_url = soup.find('a', {'href': re.compile('/user/[a-zA-Z]|[0-9]/profile')})
-
-        self.__profile_username = profile_url.attrs['href'].split('/')[2]
-
         if not self.__profile_username:
-            raise ProfileNotFound
+            url = "{site}/home".format(site=self.site)
+            try:
+                home = self.session.get(url)
+            except:
+                raise EndpointConnectionError
+
+            soup = bfs(home.text, "html.parser")
+            profile_url = soup.find('a', {'href': re.compile('/user/[a-zA-Z]|[0-9]/profile')})
+
+            try:
+                self.__profile_username = profile_url.attrs['href'].split('/')[2]
+            except IndexError:
+                raise ProfileNotFound
 
         return self.__profile_username
 
@@ -110,31 +106,44 @@ class Runkeeper(object):
             raise NoActivityInMonth
 
         for activity in activities_month[year][month]:
-            activity['details'] = self.get_activity_details(activity['activity_id'])
-            activity['datetime'] = self.get_activity_datetime(activity['activity_id'])
             activity_details.append(activity)
 
-        return [Activity(activity) for activity in activity_details]
+        return [Activity(self, activity) for activity in activity_details]
 
-    def get_activity_datetime(self, activity_id):
-        """
-        :param activity_id: String
-        :return: Locale appropriate date and time representation.
-        """
-        url = "{site}/user/{profile}/activity/{activity_id}".format(site=self.site,
-                                                                    profile=self.profile_username,
-                                                                    activity_id=activity_id)
+
+class Activity(object):
+
+    def __init__(self, runkeeper_instance, info):
+        self._runkeeper = runkeeper_instance
+        self.session = runkeeper_instance.session
         try:
-            activity_datetime_session = self.session.get(url)
-        except:
-            raise EndpointConnectionError
+            self.username = info.get('username')
+            self.distance = info.get('distance')
+            self.activity_id = info.get('activity_id')
+            self.distance_units = info.get('distanceUnits')
+            self.elapsed_time = info.get('elapsedTime')
+            self.live = info.get('live')
+            self.caption = info.get('mainText')
+            self.activity_type = info.get('type')
+            self.__statsCalories = None
+            self.__statsElevation = None
+            self.__statsPace = None
+            self.__statsSpeed = None
+            self.__datetime = None
+        except KeyError:
+            raise InvalidActivityId
 
-        soup = bfs(activity_datetime_session.text, "html.parser")
-        form = soup.find('div', {'class': 'micro-text activitySubTitle'})
-        activity_datetime = [date_params.split('-')[0].rstrip() for date_params in form]
-        activity_datetime = (''.join(activity_datetime))
 
-        return activity_datetime
+    def _populate(self):
+        """
+        Stores activity value as object from dictionary key in a variable
+        """
+        activity_details = self.get_activity_details(self.activity_id)
+        self.__datetime = self.get_activity_datetime(self.activity_id)
+        self.__statsCalories = activity_details.get('statsCalories')
+        self.__statsElevation = activity_details.get('statsElevation')
+        self.__statsPace = activity_details.get('statsPace')
+        self.__statsSpeed = activity_details.get('statsSpeed')
 
     def get_activity_details(self, activity_id):
         """
@@ -142,7 +151,7 @@ class Runkeeper(object):
         :param activity_id: String
         :return: JSON Object
         """
-        url = "{site}/ajax/pointData".format(site=self.site)
+        url = "{site}/ajax/pointData".format(site=self._runkeeper.site)
         activity_params = {"activityId": activity_id}
         try:
             activity_request = self.session.get(url, params=activity_params)
@@ -156,61 +165,53 @@ class Runkeeper(object):
 
         return activity_details
 
-class Activity(object):
-    def __init__(self, info):
-        self.info = info
-        self.activity = ''
-        self.username = ''
-        self.distance = ''
-        self.activity_id = ''
-        self.distance_units = ''
-        self.elapsed_time = ''
-        self.live = ''
-        self.caption = ''
-        self.activity_type = ''
-        self.datetime = ''
-        self.calories = ''
-        self.pace = ''
-        self.speed = ''
-        self.elevation = ''
-        self._parse()
+    @property
+    def calories(self):
+        if not self.__statsCalories:
+            self._populate()
+        return self.__statsCalories
 
-    def _parse(self):
+    @property
+    def elevation(self):
+        if not self.__statsElevation:
+            self._populate()
+        return self.__statsElevation
+
+    @property
+    def pace(self):
+        if not self.__statsPace:
+            self._populate()
+        return self.__statsPace
+
+    @property
+    def speed(self):
+        if not self.__statsSpeed:
+            self._populate()
+        return self.__statsSpeed
+
+    def get_activity_datetime(self, activity_id):
         """
-        Stores activity value as object from dictionary key in a variable
+        :param activity_id: String
+        :return: Locale appropriate date and time representation.
         """
-        self.datetime = datetime.strptime(self.info.get('datetime'), '%a %b %d %H:%M:%S %Z %Y')
-        self.username = self.info.get('username')
-        self.distance = self.info.get('distance')
-        self.activity_id = self.info.get('activity_id')
-        self.distance_units = self.info.get('distanceUnits')
-        self.elapsed_time = self.info.get('elapsedTime')
-        self.live = self.info.get('live')
-        self.caption = self.info.get('mainText')
-        self.activity_type = self.info.get('type')
-        self.calories = self.info.get('details', {}).get('statsCalories')
-        self.pace = self.info.get('details', {}).get('statsPace')
-        self.speed = self.info.get('details', {}).get('statsSpeed')
-        self.elevation = self.info.get('details', {}).get('statsElevation')
+        url = "{site}/user/{profile}/activity/{activity_id}".format(site=self._runkeeper.site,
+                                                                    profile=self._runkeeper.profile_username,
+                                                                    activity_id=activity_id)
+        try:
+            activity_datetime_session = self.session.get(url)
+        except:
+            raise EndpointConnectionError
 
-if __name__ == '__main__':
-    runkeeper = Runkeeper(email, password)
-    activities = runkeeper.get_activities_month("Apr", "2015")
+        soup = bfs(activity_datetime_session.text, "html.parser")
+        form = soup.find('div', {'class': 'micro-text activitySubTitle'})
+        activity_datetime = [date_params.split('-')[0].rstrip() for date_params in form]
+        activity_datetime = (''.join(activity_datetime))
+        activity_datetime = datetime.strptime(activity_datetime, '%a %b %d %H:%M:%S %Z %Y')
 
-    for activity in activities:
-        print "Datetime: {datetime}".format(datetime=activity.datetime)
-        print "Username: {username}".format(username=activity.username)
-        print "Distance: {distance} {distance_units}".format(distance=activity.distance,
-                                                             distance_units=activity.distance_units)
-        print "Activity ID: {activity_id}".format(activity_id=activity.activity_id)
-        print "Elapsed Time: {elapsed_time}".format(elapsed_time=activity.elapsed_time)
-        print "Live Activity: {live}".format(live=activity.live)
-        print "Caption: {caption}".format(caption=activity.caption)
-        print "Activity Type: {activity_type}".format(activity_type=activity.activity_type)
-        print "Calories Burned: {calories}".format(calories=activity.calories)
-        print "Average Pace: {avg_pace} min/{distance_units}".format(avg_pace=activity.pace,
-                                                                     distance_units=activity.distance_units)
-        print "Average Speed: {avg_speed} {distance_units}/h".format(avg_speed=activity.speed,
-                                                                     distance_units=activity.distance_units)
-        print "Elevation Climb: {elevation}".format(elevation=activity.elevation)
-        print ""
+        return activity_datetime
+
+    @property
+    def datetime(self):
+        if not self.__datetime:
+            self._populate()
+        return self.__datetime

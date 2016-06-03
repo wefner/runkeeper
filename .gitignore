@@ -1,3 +1,5 @@
 *.pyc
 .gitignore
 .DS_Store
+*_test.py
+.idea/*
