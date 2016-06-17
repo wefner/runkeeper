@@ -65,3 +65,14 @@ for month, month_activities in activities.iteritems():
         print "\tElevation Climb: {}".format(activity.elevation)
         print ""
 ```
+
+### Other objects
+```python
+# Export activities for month. Example:
+# GPX = GPS-XML
+# KML = Google Earth
+activities = runkeeper.get_activities_month("Jan", "2015")
+for activity in activities:
+    kml_activity = open("activity-{datetime}.kml".format(datetime=activity.datetime), 'w')
+    kml_activity.write(activity.kml_data)
+```

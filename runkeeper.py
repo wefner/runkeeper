@@ -150,6 +150,8 @@ class Activity(object):
             self.__statsPace = None
             self.__statsSpeed = None
             self.__datetime = None
+            self.__gpx_data = None
+            self.__kml_data = None
         except KeyError:
             raise InvalidActivityId
 
@@ -164,6 +166,8 @@ class Activity(object):
         self.__statsElevation = activity_details.get('statsElevation')
         self.__statsPace = activity_details.get('statsPace')
         self.__statsSpeed = activity_details.get('statsSpeed')
+        self.__gpx_data = self.export_activity(self.activity_id, 'gpx')
+        self.__kml_data = self.export_activity(self.activity_id, 'kml')
 
     def get_activity_details(self, activity_id):
         """
@@ -236,3 +240,32 @@ class Activity(object):
         if not self.__datetime:
             self._populate()
         return self.__datetime
+
+    def export_activity(self, activity_id, data_type):
+        """
+        Activity details as exportable in text format.
+        Warning: Long output
+        :param activity_id: string
+        :param data_type: 'kml' for GoogleEarth. 'gpx' for GPS-XML schema
+        :return: text of such file
+        """
+        url = "{site}/download/activity".format(site=self._runkeeper.site)
+        params = {'activityId': activity_id, 'downloadType': data_type}
+        try:
+            exported_activity = self.session.get(url, params=params)
+        except:
+            raise EndpointConnectionError
+
+        return exported_activity.text
+
+    @property
+    def gpx_data(self):
+        if not self.__gpx_data:
+            self._populate()
+        return self.__gpx_data
+
+    @property
+    def kml_data(self):
+        if not self.__kml_data:
+            self._populate()
+        return self.__kml_data
