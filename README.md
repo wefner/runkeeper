@@ -28,8 +28,8 @@ runkeeper = Runkeeper(email, password)
 ## Methods
 ```python
 # Month is in abbreviated format. Year is an optional argument. Defaults to current year.
-activities = runkeeper.get_activities_month("May", "2016")
-for activity in activities:
+month_activities = runkeeper.get_activities_month("May", "2016")
+for activity in month_activities:
     print "Datetime: {}".format(activity.datetime)
     print "Username: {}".format(activity.username)
     print "Distance: {} {}".format(activity.distance, activity.distance_units)
@@ -47,8 +47,8 @@ for activity in activities:
 
 ```python
 # All activity objects in year will be returned in a list
-activities = runkeeper.get_activities_year("2015")
-for month, month_activities in activities.iteritems():
+year_activities = runkeeper.get_activities_year("2015")
+for month, month_activities in year_activities.iteritems():
     print "Month: {}".format(month)
     for activity in month_activities:
         print "\tDatetime: {}".format(activity.datetime)
