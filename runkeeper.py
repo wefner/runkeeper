@@ -155,19 +155,25 @@ class Activity(object):
         except KeyError:
             raise InvalidActivityId
 
-    def _populate(self):
+    def _populate_details(self):
         """
         Stores activity value as object from dictionary key.
         Different endpoints so required if only needed.
         """
         activity_details = self.get_activity_details(self.activity_id)
-        self.__datetime = self.get_activity_datetime(self.activity_id)
         self.__statsCalories = activity_details.get('statsCalories')
         self.__statsElevation = activity_details.get('statsElevation')
         self.__statsPace = activity_details.get('statsPace')
         self.__statsSpeed = activity_details.get('statsSpeed')
+
+    def _populate_gpx_export(self):
         self.__gpx_data = self.export_activity(self.activity_id, 'gpx')
-        self.__kml_data = self.export_activity(self.activity_id, 'kml')
+
+    def _populate_googleEarth_export(self):
+        self.__kml_data = self.export_activity(self.activity_id, 'googleEarth')
+
+    def _populate_datetime(self):
+        self.__datetime = self.get_activity_datetime(self.activity_id)
 
     def get_activity_details(self, activity_id):
         """
@@ -192,25 +198,25 @@ class Activity(object):
     @property
     def calories(self):
         if not self.__statsCalories:
-            self._populate()
+            self._populate_details()
         return self.__statsCalories
 
     @property
     def elevation(self):
         if not self.__statsElevation:
-            self._populate()
+            self._populate_details()
         return self.__statsElevation
 
     @property
     def pace(self):
         if not self.__statsPace:
-            self._populate()
+            self._populate_details()
         return self.__statsPace
 
     @property
     def speed(self):
         if not self.__statsSpeed:
-            self._populate()
+            self._populate_details()
         return self.__statsSpeed
 
     def get_activity_datetime(self, activity_id):
@@ -238,7 +244,7 @@ class Activity(object):
     @property
     def datetime(self):
         if not self.__datetime:
-            self._populate()
+            self._populate_datetime()
         return self.__datetime
 
     def export_activity(self, activity_id, data_type):
@@ -261,11 +267,11 @@ class Activity(object):
     @property
     def gpx_data(self):
         if not self.__gpx_data:
-            self._populate()
+            self._populate_gpx_export()
         return self.__gpx_data
 
     @property
     def kml_data(self):
         if not self.__kml_data:
-            self._populate()
+            self._populate_googleEarth_export()
         return self.__kml_data
