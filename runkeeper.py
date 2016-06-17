@@ -1,19 +1,15 @@
 #!/usr/bin/env python
 
-import re
-import json
-from requests import Session
 from bs4 import BeautifulSoup as bfs
+from runkeeperExceptions import *
 from datetime import datetime
-from runkeeperExceptions import InvalidAuhentication, \
-                                NoActivityInMonth, \
-                                EndpointConnectionError, \
-                                ProfileNotFound, \
-                                InvalidActivityId, \
-                                NoActivitiesFound
+from requests import Session
+import calendar
+import json
+import re
+
 
 class Runkeeper(object):
-
     def __init__(self, email, password):
         self.email = email
         self.password = password
@@ -43,11 +39,14 @@ class Runkeeper(object):
 
     def __get_hidden_elements(self):
         """
-        Retrieve all <hidden> parameters in form
+        Retrieve all <hidden> parameters from requested form
         :return: dict
         """
         url = "{site}/login".format(site=self.site)
-        login_form = self.session.get(url)
+        try:
+            login_form = self.session.get(url)
+        except:
+            raise EndpointConnectionError
 
         soup = bfs(login_form.text, "html.parser")
         form = soup.find_all('input', {'type': 'hidden'})
@@ -88,6 +87,9 @@ class Runkeeper(object):
         activity_details = []
         year = year or str(datetime.today().year)
 
+        if int(year) > datetime.today().year:
+            raise NoActivityInYear
+
         start_date = "{month}-01-{year}".format(month=month, year=year)
         payload = {"userName": self.profile_username, "startDate": start_date}
         url = "{site}/activitiesByDateRange".format(site=self.site)
@@ -96,7 +98,6 @@ class Runkeeper(object):
             activities_month_request = self.session.get(url, params=payload)
         except:
             raise EndpointConnectionError
-
         try:
             activities_month = json.loads(activities_month_request.text)['activities']
         except:
@@ -110,9 +111,28 @@ class Runkeeper(object):
 
         return [Activity(self, activity) for activity in activity_details]
 
+    def get_activities_year(self, year):
+        """
+        Gets as many months that have activities in a year
+        :param year: string
+        :return: dictionary. Key is the month. Value is a list that contains
+        activity objects
+        """
+        months_abbr = [calendar.month_abbr[month] for month in range(1, 13)]
+        valid_months = months_abbr[:datetime.today().month] if int(year) >= datetime.today().year else months_abbr
+        year_activities = {}
+        for month in valid_months:
+            try:
+                month_activities = self.get_activities_month(month, year)
+            except (NoActivityInMonth, NoActivitiesFound):
+                month_activities = []
+
+            year_activities[month] = month_activities
+
+        return year_activities
+
 
 class Activity(object):
-
     def __init__(self, runkeeper_instance, info):
         self._runkeeper = runkeeper_instance
         self.session = runkeeper_instance.session
@@ -133,10 +153,10 @@ class Activity(object):
         except KeyError:
             raise InvalidActivityId
 
-
     def _populate(self):
         """
-        Stores activity value as object from dictionary key in a variable
+        Stores activity value as object from dictionary key.
+        Different endpoints so required if only needed.
         """
         activity_details = self.get_activity_details(self.activity_id)
         self.__datetime = self.get_activity_datetime(self.activity_id)
@@ -192,7 +212,7 @@ class Activity(object):
     def get_activity_datetime(self, activity_id):
         """
         :param activity_id: String
-        :return: Locale appropriate date and time representation.
+        :return: datetime object.
         """
         url = "{site}/user/{profile}/activity/{activity_id}".format(site=self._runkeeper.site,
                                                                     profile=self._runkeeper.profile_username,
@@ -204,6 +224,7 @@ class Activity(object):
 
         soup = bfs(activity_datetime_session.text, "html.parser")
         form = soup.find('div', {'class': 'micro-text activitySubTitle'})
+
         activity_datetime = [date_params.split('-')[0].rstrip() for date_params in form]
         activity_datetime = (''.join(activity_datetime))
         activity_datetime = datetime.strptime(activity_datetime, '%a %b %d %H:%M:%S %Z %Y')

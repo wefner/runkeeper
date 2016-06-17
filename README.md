@@ -14,6 +14,7 @@ always replace it for your plain password as a string.
 `email` should be filled accordingly as well.
 
 # Usage
+## Basic
 ```python
 from runkeeper import Runkeeper
 import keyring
@@ -22,24 +23,45 @@ email = "your@email.com"
 password = keyring.get_password("runkeeper", email)
 
 runkeeper = Runkeeper(email, password)
+```
+
+## Methods
+```python
 # Month is in abbreviated format. Year is an optional argument. Defaults to current year.
 activities = runkeeper.get_activities_month("May", "2016")
-
 for activity in activities:
-    print "Datetime: {datetime}".format(datetime=activity.datetime)
-    print "Username: {username}".format(username=activity.username)
-    print "Distance: {distance} {distance_units}".format(distance=activity.distance,
-                                                         distance_units=activity.distance_units)
-    print "Activity ID: {activity_id}".format(activity_id=activity.activity_id)
-    print "Elapsed Time: {elapsed_time}".format(elapsed_time=activity.elapsed_time)
-    print "Live Activity: {live}".format(live=activity.live)
-    print "Caption: {caption}".format(caption=activity.caption)
-    print "Activity Type: {activity_type}".format(activity_type=activity.activity_type)
-    print "Calories Burned: {calories}".format(calories=activity.calories)
-    print "Average Pace: {avg_pace} min/{distance_units}".format(avg_pace=activity.pace,
-                                                                 distance_units=activity.distance_units)
-    print "Average Speed: {avg_speed} {distance_units}/h".format(avg_speed=activity.speed,
-                                                                 distance_units=activity.distance_units)
-    print "Elevation Climb: {elevation}".format(elevation=activity.elevation)
+    print "Datetime: {}".format(activity.datetime)
+    print "Username: {}".format(activity.username)
+    print "Distance: {} {}".format(activity.distance, activity.distance_units)
+    print "Activity ID: {}".format(activity.activity_id)
+    print "Elapsed Time: {}".format(activity.elapsed_time)
+    print "Live Activity: {}".format(activity.live)
+    print "Caption: {}".format(activity.caption)
+    print "Activity Type: {}".format(activity.activity_type)
+    print "Calories Burned: {}".format(activity.calories)
+    print "Average Pace: {} min/{}".format(activity.pace, activity.distance_units)
+    print "Average Speed: {} {}/h".format(activity.speed, activity.distance_units)
+    print "Elevation Climb: {}".format(activity.elevation)
     print ""
+```
+
+```python
+# All activity objects in year will be returned in a list
+activities = runkeeper.get_activities_year("2015")
+for month, month_activities in activities.iteritems():
+    print "Month: {}".format(month)
+    for activity in month_activities:
+        print "\tDatetime: {}".format(activity.datetime)
+        print "\tUsername: {}".format(activity.username)
+        print "\tDistance: {} {}".format(activity.distance, activity.distance_units)
+        print "\tActivity ID: {}".format(activity.activity_id)
+        print "\tElapsed Time: {}".format(activity.elapsed_time)
+        print "\tLive Activity: {}".format(activity.live)
+        print "\tCaption: {}".format(activity.caption)
+        print "\tActivity Type: {}".format(activity.activity_type)
+        print "\tCalories Burned: {}".format(activity.calories)
+        print "\tAverage Pace: {} min/{}".format(activity.pace, activity.distance_units)
+        print "\tAverage Speed: {} {}/h".format(activity.speed, activity.distance_units)
+        print "\tElevation Climb: {}".format(activity.elevation)
+        print ""
 ```
