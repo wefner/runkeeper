@@ -20,7 +20,7 @@ from runkeeper import Runkeeper
 import keyring
 
 email = "your@email.com"
-password = keyring.get_password("runkeeper", email)
+password = keyring.get_password("runkeeper", email) or "MyPassword"
 
 runkeeper = Runkeeper(email, password)
 ```
@@ -65,6 +65,19 @@ for month, month_activities in year_activities.iteritems():
         print "\tElevation Climb: {}".format(activity.elevation)
         print ""
 ```
+
+```python
+# Upload GPX activity
+runkeeper.create_new_activity('RUN', '/my_files/Morning_Run.gpx')
+```
+
+### Activity Types
+```
+['RUN', 'WALK', 'BIKE', 'SWIMMING', 'ELLIPTICAL', 'STRENGTH_TRAINING', 'CIRCUIT_TRAINING', 'CORE_STRENGTHENING',
+ 'ARC_TRAINER', 'ROWING', 'HIKE', 'MOUNTAINBIKE', 'SKATE', 'NORDIC_WALKING', 'XC_SKI', 'DH_SKI', 'SNOWBOARD',
+ 'WHEELCHAIR', 'YOGA', 'PILATES', 'CROSSFIT', 'SPINNING', 'ZUMBA', 'BARRE', 'GROUP_WORKOUT', 'DANCE', 'BOOTCAMP',
+ 'BOXING_MMA', 'MEDITATION', 'STAIRMASTER_STEPWELL', 'SPORTS', 'OTHER']
+ ```
 
 ### Other objects
 ```python

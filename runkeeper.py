@@ -2,8 +2,10 @@
 
 from bs4 import BeautifulSoup as bfs
 from runkeeperExceptions import *
+from haversine import haversine
 from datetime import datetime
-from requests import Session
+from requests import Session, utils
+import xml.etree.ElementTree as ET
 import calendar
 import json
 import re
@@ -24,7 +26,7 @@ class Runkeeper(object):
         :return: bool
         """
         url = "{site}/login".format(site=self.site)
-        hidden_elements = self.__get_hidden_elements()
+        hidden_elements = self.__get_hidden_elements('login')
         hidden_elements['email'] = self.email
         hidden_elements['password'] = self.password
         try:
@@ -33,23 +35,29 @@ class Runkeeper(object):
             raise EndpointConnectionError
 
         if not valid_authentication.cookies.get('checker'):
-            raise InvalidAuhentication
+            raise InvalidAuthentication
 
         return True
 
-    def __get_hidden_elements(self):
+    def __get_hidden_elements(self, endpoint):
         """
         Retrieve all <hidden> parameters from requested form
         :return: dict
         """
-        url = "{site}/login".format(site=self.site)
+        url = "{site}/{endpoint}".format(site=self.site,
+                                         endpoint=endpoint)
         try:
-            login_form = self.session.get(url)
+            endpoint_form = self.session.get(url)
         except:
             raise EndpointConnectionError
 
-        soup = bfs(login_form.text, "html.parser")
-        form = soup.find_all('input', {'type': 'hidden'})
+        soup = bfs(endpoint_form.text, "html.parser")
+
+        try:
+            form = soup.find_all('input', {'type': 'hidden'})
+        except:
+            raise HiddenElementsNotFound
+
         hidden_elements = {element.attrs['name']: element.attrs['value'] for element in form}
 
         return hidden_elements
@@ -115,12 +123,12 @@ class Runkeeper(object):
         """
         Gets as many months that have activities in a year
         :param year: string
-        :return: dictionary. Key is the month. Value is a list that contains
-        activity objects
+        :return: dictionary. Key is the month. Value is a list of month activity objects
         """
         months_abbr = [calendar.month_abbr[month] for month in range(1, 13)]
         valid_months = months_abbr[:datetime.today().month] if int(year) >= datetime.today().year else months_abbr
         year_activities = {}
+
         for month in valid_months:
             try:
                 month_activities = self.get_activities_month(month, year)
@@ -130,6 +138,144 @@ class Runkeeper(object):
             year_activities[month] = month_activities
 
         return year_activities
+
+    def create_new_activity(self, activity_type, activity_file=None):
+        activity_type = activity_type.upper()
+        url = '{site}/new/activity'.format(site=self.site)
+
+        with open(activity_file, 'r') as myfile:
+            data_str = myfile.read().replace('\n', '')
+        files = {'trackFile': (activity_file, open(activity_file, 'rb'), 'multipart/form-data')}
+        try:
+            new_activity_form = self.session.get(url)
+        except:
+            raise EndpointConnectionError
+
+        soup = bfs(new_activity_form.text, "html.parser")
+        activities_form = soup.find_all('li', {'class': 'activityTypeItem'})
+        activity_types = [act_type.attrs['data-value'] for act_type in activities_form]
+        hidden_elements = self.__get_hidden_elements('new/activity')
+
+        if not activity_types:
+            raise NoActivityTypesFound
+
+        if activity_type not in activity_types:
+            raise ActivityTypeUnknown
+
+        hidden_elements['activityType'] = activity_type
+        hidden_elements.update(self.__populate_activity_gpx(activity_file))
+
+        file_hidden_elements = {k: v for k, v in hidden_elements.iteritems()}
+        file_hidden_elements['trackFile'] = data_str
+        file_hidden_elements['heartRateGraphJson'] = ''
+        file_hidden_elements['route'] = ''
+        file_hidden_elements['averageHeartRate'] = ''
+        file_hidden_elements['hrmFile'] = ''
+        file_hidden_elements['activityViewableBy'] = ''
+        file_hidden_elements['calories'] = ''
+        file_hidden_elements['notes'] = ''
+
+        if activity_file.endswith('.gpx'):
+            file_hidden_elements['uploadType'] = '.gpx'
+        else:
+            raise UnknownFileType
+        try:
+            if self.upload_activity(activity_file):
+                new_activity_post = self.session.post(url, data=file_hidden_elements, files=files)
+                return new_activity_post
+        except Exception as e:
+            raise ErrorUploadingTrack(e)
+
+    def upload_activity(self, activity_file):
+        track_params = {}
+
+        if activity_file.endswith('.gpx'):
+            track_params['uploadType'] = '.gpx'
+        else:
+            raise UnknownFileType
+
+        files = {'trackFile': (activity_file, open(activity_file, 'rb'), 'multipart/form-data')}
+
+        url = "{site}/trackFileUpload".format(site=self.site)
+        try:
+            track_upload = self.session.post(url, data=track_params, files=files)
+        except:
+            raise EndpointConnectionError
+
+        upload_response = json.loads(track_upload.text)
+
+        # Fix this
+        if upload_response['error']:
+            raise ErrorUploadingTrack
+
+        if track_upload.ok:
+            return True
+
+        return False
+
+    def __populate_activity_gpx(self, gpx_file):
+        gpx_params = {}
+        gpx_details = self.__parse_gpx(gpx_file)
+        start = datetime.strptime(sorted(gpx_details['times'])[0], '%Y-%m-%dT%H:%M:%SZ')
+        end = datetime.strptime(sorted(gpx_details['times'])[-1], '%Y-%m-%dT%H:%M:%SZ')
+        duration = end - start
+        duration = str(duration).split(':')
+
+        gpx_params['uploadType'] = '.gpx'
+        gpx_params['durationHours'] = "{0:02d}".format(int(duration[0]))
+        gpx_params['durationMinutes'] = "{0:02d}".format(int(duration[1]))
+        gpx_params['durationSeconds'] = "{0:02d}".format(int(duration[2]))
+        gpx_params['importFormat'] = 'gpx'
+        gpx_params['startHour'] = "{0:02d}".format(int(start.hour))
+        gpx_params['startMinute'] = "{0:02d}".format(int(start.minute))
+        gpx_params['distance'] = "{0:.2f}".format(self.__calculate_haversine(gpx_details['coordinates']))
+        gpx_params['startTimeString'] = "{:%Y/%m/%d %H:%M:%S.000}".format(start)
+
+        return gpx_params
+
+    def __parse_gpx(self, gpx_file):
+        # Find a better way..
+        url_pattern = 'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+
+        activity_times = []
+        coordinates = []
+        gpx_details = {}
+
+        with open(gpx_file, 'r') as f:
+            upload_gpx = f.read().replace('\n', '')
+
+        root = ET.fromstring(upload_gpx)
+        try:
+            # GPX input has namespaces
+            xmlns = re.findall(url_pattern, root.tag)
+            xmlns = ''.join(xmlns)
+            ns = {'gpx': xmlns}
+        except:
+            raise NameSpaceInGPXnotFound
+
+        try:
+            for trk in root.find('gpx:trk', ns):
+                for trkpt in trk.findall('gpx:trkpt', ns):
+                    coordinates.append((trkpt.attrib['lat'], trkpt.attrib['lon']))
+                    for time in trkpt.findall('gpx:time', ns):
+                        activity_times.append(time.text)
+        except:
+            raise ErrorParsingGPX
+
+        gpx_details['coordinates'] = coordinates
+        gpx_details['times'] = activity_times
+
+        return gpx_details
+
+    def __calculate_haversine(self, coordinates):
+        coordinates_float = [(float(lat), float(lon)) for lat, lon in coordinates]
+
+        total_distance = 0
+        for coordinate in range(len(coordinates_float) - 1):
+            two_distances = haversine(coordinates_float[coordinate], coordinates_float[coordinate + 1])
+            total_distance += two_distances
+
+        return total_distance
 
 
 class Activity(object):
@@ -275,3 +421,5 @@ class Activity(object):
         if not self.__kml_data:
             self._populate_googleEarth_export()
         return self.__kml_data
+
+
